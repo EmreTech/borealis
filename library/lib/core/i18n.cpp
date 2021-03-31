@@ -21,12 +21,21 @@
 #include <borealis/core/assets.hpp>
 #include <borealis/core/i18n.hpp>
 #include <filesystem>
+
+#ifdef __SWITCH__
 #include <unordered_map>
+#else
+#include <folly/container/F14Map.h>
+#endif
 
 namespace brls
 {
 
+#ifdef __SWITCH__
 typedef std::unordered_map<std::string, std::string> locales;
+#else
+typedef folly::F14FastMap<std::string, std::string> locales;
+#endif
 
 // For Internal text
 const std::string internalXML = R"xml(
@@ -46,7 +55,6 @@ const std::string internalXML = R"xml(
 
 static locales xmlDefaultLocale; // For default locale (en-US)
 static locales xmlCurrentLocale; // For current locale found by platform
-static locales xmlInternalText; // For internal text
 
 void getTextFromElements(tinyxml2::XMLElement* root, std::string existing_path, locales& target)
 {
@@ -103,8 +111,7 @@ std::vector<std::string>& i18nChecker()
         Logger::error("Detected an invalid i18n setup. Directory {} doesn't exist.", path);
         return warnings;
     }
-
-    if (!std::filesystem::is_directory(path))
+    else if (!std::filesystem::is_directory(path))
     {
         Logger::error("Detected an invalid i18n setup. {} isn't a directory.", path);
         return warnings;
@@ -112,8 +119,7 @@ std::vector<std::string>& i18nChecker()
 
     if (!std::filesystem::exists(BRLS_ASSET("i18n/en-US")))
         warnings.push_back("Detected no default locale directory. Directory " + BRLS_ASSET("i18n/en-US") + " doesn't exist.");
-    
-    if (!std::filesystem::is_directory(BRLS_ASSET("i18n/en-US")))
+    else if (!std::filesystem::is_directory(BRLS_ASSET("i18n/en-US")))
         warnings.push_back("Detected no default locale directory. Found file " + BRLS_ASSET("i18n/en-US") + " instead.");
 
     for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(path))
@@ -239,7 +245,7 @@ void loadTranslations()
 
 namespace internal
 {
-    std::string getRawStr(std::string stringName)
+    std::string getRawStr(std::string stringName, bool internal)
     {
         std::string currentLocaleName = Application::getLocale();
 
@@ -253,27 +259,14 @@ namespace internal
             }
         }
 
-        // Then look for default locale
-        else if (currentLocaleName == LOCALE_DEFAULT)
+        // Then look for default locale or internal translation (is contained in default locale by default)
+        else if (currentLocaleName == LOCALE_DEFAULT || internal)
         {
             for (auto& [path, value] : xmlDefaultLocale)
             {
                 if (stringName == path)
                     return value;
             }
-        }
-
-        // Fallback to returning the string name
-        return stringName;
-    }
-
-    std::string getInternalRawStr(std::string stringName)
-    {
-        // Looks through Internal text (its locale is en-US)
-        for (auto& [path, value] : xmlDefaultLocale)
-        {
-            if (stringName == path)
-                return value;
         }
 
         // Fallback to returning the string name
@@ -290,7 +283,7 @@ inline namespace literals
 
     std::string operator"" _internal(const char* str, size_t len)
     {
-        return internal::getInternalRawStr(std::string(str, len));
+        return internal::getRawStr(std::string(str, len), true);
     }
 } // namespace literals
 
